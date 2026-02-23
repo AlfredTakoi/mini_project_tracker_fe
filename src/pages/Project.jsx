@@ -180,9 +180,7 @@ const Project = () => {
 
   // flatten all tasks for dependency selection
   const allTasks = projects.flatMap((p) =>
-    (p.tasks || []).map((t) => ({ ...t, project_name: p.name, project_id: p.id, dependencies: t.dependencies  }))
-    // exclude the task being edited from the dropdown
-    .filter(t => !editingRecordTask || t.id !== editingRecordTask.id)})
+    (p.tasks || []).map((t) => ({ ...t, project_name: p.name, project_id: p.id, dependencies: t.dependencies  })).filter(t => !editingRecordTask || t.id !== editingRecordTask.id)
   );
 
   const handleSubmit = async (values) => {
