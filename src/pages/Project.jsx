@@ -20,6 +20,7 @@ const Project = () => {
   const [editingRecordTask, setEditingRecordTask] = useState(null);
   const [viewingRecordTask, setViewingRecordTask] = useState(null);
   const [viewingRecord, setViewingRecord] = useState(null);
+  const [dependencies, setDependencies] = useState([]);
   const [form] = Form.useForm();
   const [formTask] = Form.useForm();
 
@@ -48,94 +49,19 @@ const Project = () => {
     setOpenTaskDetail(true);
   }
 
-  const renderPanels = () => {
-    return projects.map((item, index) => (
-      <Collapse.Panel
-        header={
-          <div className="flex gap-2">
-            <p>{item.name}</p>
-            <Button 
-              type="primary" 
-              size="small" 
-              icon={<PlusOutlined />} 
-              onClick={(e) => {
-                // when adding a task from a project panel, preselect that project
-                showDrawerTask(null, item.id);
-                e.stopPropagation();
-              }}
-            >
-              
-            </Button>
-          </div>
-        } 
-        key={index + 1}
-        extra={ // Add extra elements to the panel header
-          <div className="flex gap-2 items-center">
-            <Tag color="blue" variant="solid">{+parseInt(item.completion_progress).toFixed(2)}%</Tag>
-            <div className="self-center">
-              {checkStatus(item.status)}
-            </div>
-            <Popconfirm
-              title="Delete this hero project?"
-              description="This action cannot be undone."
-              onConfirm={(e) => {
-                handleDelete(item.id)
-                e.stopPropagation();
-              }}
-              onCancel={(e) => e.stopPropagation()}
-              okText="Yes"
-              cancelText="No"
-              okButtonProps={{ danger: true }}
-            >
-              <Button color="danger" onClick={(e) => e.stopPropagation()} variant="filled" icon={<DeleteOutlined />} danger />
-            </Popconfirm>
-            <Button
-              color="orange"
-              variant="filled"
-              icon={<EditOutlined />}
-              onClick={(e) => {
-                showDrawer(item);
-                e.stopPropagation();
-              }}
-            />
-             <Button
-              color="blue"
-              variant="filled"
-              icon={<EyeOutlined />}
-              onClick={(e) => {
-                handleViewDetail(item);
-                e.stopPropagation();
-              }}
-            />
-          </div>
-        }
-      >
-        <div>
-          { item.tasks.length === 0 ? (
-             <p className="text-center text-gray-400">Task Not Found</p>
-          ) : (
-            <ul>
-              {
-              item.tasks.map((data, index) => {
-                return (
-                  <ProjectItem 
-                    data={data}
-                    item={item}
-                    checkStatus={checkStatus}
-                    handleDeleteTask={handleDeleteTask}
-                    showDrawerTask={showDrawerTask}
-                    handleViewDetailTask={handleViewDetailTask}
-                  />
-                )
-              }) 
-              }
-            </ul>
-          )}
-        </div>
-      </Collapse.Panel>
-    ));
-  };
-
+   const handleDeleteTask = async (id) => {
+    try {
+      setLoadingDelete(true);
+      await api.delete(`/tasks/${id}`);
+      message.success("Task deleted successfully!");
+      fetchProjects();
+    } catch (error) {
+      message.error("Failed to delete Task");
+      console.error(error);
+    } finally {
+      setLoadingDelete(false);
+    }
+  }
 
   useEffect(() => {
     fetchProjects();
@@ -166,10 +92,36 @@ const Project = () => {
   const showDrawerTask = (record = null, projectId = null) => {
     setEditingRecordTask(record);
     if (record) {
-      formTask.setFieldsValue({
-        ...record,
-        project_id: record.project_id ?? projectId,
-      });
+      (async () => {
+        try {
+          // If the record doesn't include `dependencies`, fetch full task detail
+          let full = record;
+          if (typeof record.dependencies === "undefined") {
+            const res = await api.get(`/tasks/${record.id}`);
+            full = res.data.data;
+          }
+
+          // Normalize dependencies: API may return array of ids or array of objects
+          const depsRaw = full.dependencies || [];
+          const deps = depsRaw.map((d) => (d && typeof d === "object" ? d.id : d));
+
+          formTask.setFieldsValue({
+            ...full,
+            project_id: full.project_id ?? projectId,
+            dependencies: deps,
+          });
+        } catch (err) {
+          console.error("Failed to fetch task detail:", err);
+          // fallback to record as-is
+          const depsRaw = record.dependencies || [];
+          const deps = depsRaw.map((d) => (d && typeof d === "object" ? d.id : d));
+          formTask.setFieldsValue({
+            ...record,
+            project_id: record.project_id ?? projectId,
+            dependencies: deps,
+          });
+        }
+      })();
     } else {
       formTask.resetFields();
       if (projectId) {
@@ -194,29 +146,44 @@ const Project = () => {
   const handleSubmitTask = async (values) => {
     try {
       setLoading(true);
-      const formData = new FormData();
-      formData.append("name", values.name);
-      formData.append("weight", values.weight);
-      formData.append("project_id", values.project_id);
-      formData.append("status", values.status);
-  
+      // send everything as JSON so backend can parse array types properly
+      const payload = {
+        name: values.name,
+        weight: values.weight,
+        project_id: values.project_id,
+        status: values.status,
+        dependencies: values.dependencies || [],
+      };
+
       if (editingRecordTask) {
-        await api.put(`/tasks/${editingRecordTask.id}`, formData);
+        await api.put(`/tasks/${editingRecordTask.id}`, payload, {
+          headers: { "Content-Type": "application/json" },
+        });
         message.success("Task updated successfully!");
       } else {
-        await api.post("/tasks", formData);
+        await api.post("/tasks", payload, {
+          headers: { "Content-Type": "application/json" },
+        });
         message.success("Task created successfully!");
       }
     } catch (error) {
       message.error(editingRecordTask ? "Failed to update Task" : "Failed to create Task");
       console.error(error);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
 
     fetchProjects();
-    setOpenTask(false)
+    setOpenTask(false);
   }
+
+
+  // flatten all tasks for dependency selection
+  const allTasks = projects.flatMap((p) =>
+    (p.tasks || []).map((t) => ({ ...t, project_name: p.name, project_id: p.id, dependencies: t.dependencies  }))
+    // exclude the task being edited from the dropdown
+    .filter(t => !editingRecordTask || t.id !== editingRecordTask.id)})
+  );
 
   const handleSubmit = async (values) => {
     try {
@@ -256,20 +223,87 @@ const Project = () => {
     }
   }
 
-  const handleDeleteTask = async (id) => {
-    try {
-      setLoadingDelete(true);
-      await api.delete(`/tasks/${id}`);
-      message.success("Task deleted successfully!");
-      fetchProjects();
-    } catch (error) {
-      message.error("Failed to delete Task");
-      console.error(error);
-    } finally {
-      setLoadingDelete(false);
-    }
-  }
+  const renderPanels = (data) => {
+    return data.map((item, index) => ({
+      key: index + 1,
+      label:
+        <div className="flex gap-2">
+          <p>{item.name}</p>
+          <Button
+            type="primary"
+            size="small"
+            icon={<PlusOutlined />}
+            onClick={(e) => {
+              showDrawerTask(null, item.id);
+              e.stopPropagation();
+            }}
+          />
+        </div>,
+      extra: (  // ← tambahkan ini
+        <div className="flex gap-2 items-center">
+          <Tag color="blue" variant="solid">{+parseInt(item.completion_progress).toFixed(2)}%</Tag>
+          <div className="self-center">
+            {checkStatus(item.status)}
+          </div>
+          <Popconfirm
+            title="Delete this hero project?"
+            description="This action cannot be undone."
+            onConfirm={(e) => {
+              handleDelete(item.id)
+              e.stopPropagation();
+            }}
+            onCancel={(e) => e.stopPropagation()}
+            okText="Yes"
+            cancelText="No"
+            okButtonProps={{ danger: true }}
+          >
+            <Button color="danger" onClick={(e) => e.stopPropagation()} variant="filled" icon={<DeleteOutlined />} danger />
+          </Popconfirm>
+          <Button
+            color="orange"
+            variant="filled"
+            icon={<EditOutlined />}
+            onClick={(e) => {
+              showDrawer(item);
+              e.stopPropagation();
+            }}
+          />
+            <Button
+            color="blue"
+            variant="filled"
+            icon={<EyeOutlined />}
+            onClick={(e) => {
+              handleViewDetail(item);
+              e.stopPropagation();
+            }}
+          />
+        </div>
+      ),
+      children:
+        <div>
+          { item.tasks.length === 0 ? (
+            <p className="text-center text-gray-400">Task Not Found</p>
+          ) : (
+            <ul>
+              {item.tasks.map((data, index) => (
+                <ProjectItem
+                  key={data.id}
+                  data={data}
+                  item={item}
+                  number={index + 1}
+                  checkStatus={checkStatus}
+                  handleDeleteTask={handleDeleteTask}
+                  showDrawerTask={showDrawerTask}
+                  handleViewDetailTask={handleViewDetailTask}
+                />
+              ))}
+            </ul>
+          )}
+        </div>,
+    }));
+  };
 
+  const itemProjects = renderPanels(projects);
 
   return (
     <>
@@ -295,9 +329,7 @@ const Project = () => {
             projects.length === 0 ? (
               <p className="text-center text-gray-400">Project Not Found</p>
             ) : (
-              <Collapse defaultActiveKey={["1"]}>
-                {renderPanels()}
-              </Collapse>
+              <Collapse items={itemProjects} defaultActiveKey={["1"]}></Collapse>
             )
         )}
 
@@ -331,6 +363,7 @@ const Project = () => {
           open={openTask}
           loading={loading}
           projects={projects}
+          dependencies={allTasks}
           loadingDelete={loadingDelete}
         />
 

@@ -35,6 +35,16 @@ export function DetailTaskDrawer({
           <h5 className="font-bold">Project</h5>
           <p>{viewingRecordTask?.project_name || viewingRecordTask?.project_id}</p>
         </Col>
+        <Col span={24}>
+          <h5 className="font-bold">Dependencies</h5>
+          <ul>
+            {
+              viewingRecordTask?.dependencies?.map((dependency) => (
+                <li key={dependency.id}>{dependency.name}</li>
+              ))
+            }
+          </ul>
+        </Col>
       </Row>
     </Drawer>
   );

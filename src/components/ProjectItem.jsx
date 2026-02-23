@@ -34,7 +34,6 @@ export function ProjectItem({
             variant="filled"
             icon={<EditOutlined />}
             onClick={(e) => {
-              // pass parent project id so the select can show the current project
               showDrawerTask(data, item.id);
               e.stopPropagation();
             }}

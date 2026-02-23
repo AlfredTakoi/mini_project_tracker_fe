@@ -10,6 +10,7 @@ export function CreateEditTaskDrawer({
   loading,
   projects,
   loadingDelete,
+  dependencies,
 }) {
   return (
     <Drawer
@@ -76,6 +77,28 @@ export function CreateEditTaskDrawer({
                   <Select.Option key={project.id} value={project.id}>
                     <div>
                       <div style={{ fontWeight: 500 }}>{project.name}</div>
+                    </div>
+                  </Select.Option>
+                ))}
+              </Select>
+            </Form.Item>
+          </Col>
+          <Col span={24}>
+            <Form.Item
+              name="dependencies"
+              label="Dependencies"
+              rules={[{ required: false, message: "Please enter Dependencies" }]}
+            >
+              <Select
+                placeholder="Select Dependencies"
+                name="dependency_ids"
+                mode="multiple"
+                style={{ borderRadius: 8 }}
+              >
+                {dependencies.map((task) => (
+                  <Select.Option key={task.id} value={task.id}>
+                    <div>
+                      <div style={{ fontWeight: 500 }}>{task.name}</div>
                     </div>
                   </Select.Option>
                 ))}
